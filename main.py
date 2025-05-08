@@ -48,11 +48,6 @@ def alternating_optimization(u, X, X_mask, max_it=100, eps=1e-8, lambda_reg=1e-8
                 prod = b @ b + lambda_reg
                 v[j] = a / prod
 
-        if norm_v:
-            v_norm = np.linalg.norm(v)
-            if v_norm > 1e-12:
-                v /= v_norm
-
         # Update u
         for i in range(n):
             row_mask = X_mask[i, :]
@@ -69,6 +64,14 @@ def alternating_optimization(u, X, X_mask, max_it=100, eps=1e-8, lambda_reg=1e-8
         res = np.linalg.norm((A_hat - X) * X_mask, 'fro')
         improvement = prev_res - res
         prev_res = res
+
+        # Normalize v and adjust u
+        if norm_v:
+            v_norm = np.linalg.norm(v)
+            if v_norm > 1e-12:
+                v /= v_norm
+                u *= v_norm
+
 
         if verbose and (it % 10 == 0 or it == 1):
             print(f"[AO] Iter {it}, Residual: {res:.6f}, Improvement: {improvement:.6f}")
@@ -295,7 +298,7 @@ def compare_solvers(X_obs, X_true, u0, mask, lambda_r, plot=False):
 
     # Perform AO with normalized v
     start = time.time()
-    u, v, it, res, hist = alternating_optimization(u0, X_obs, mask, max_it=500, lambda_reg=lambda_r,
+    u, v, it, res, hist = alternating_optimization(u0, X_obs, mask, max_it=500, lambda_reg=lambda_r/1000,
                                                    verbose=False,
                                                    track_residuals=plot, norm_v=True)
     end = time.time()
@@ -303,15 +306,15 @@ def compare_solvers(X_obs, X_true, u0, mask, lambda_r, plot=False):
     # Distance comparisons
     ao_sol = np.outer(u, v)
     EY = np.linalg.norm((ao_sol - X_obs) * mask, 'fro')
-    print(f"AO: Residual={res:.4f}, Distance={EY:.4f}, Iter={it}")
+    print(f"AON: Residual={res:.4f}, Distance={EY:.4f}, Iter={it}")
 
     # Errors
     observed_error_ao = np.linalg.norm((ao_sol - X_true) * mask, ord='fro')
     full_error_ao = np.linalg.norm(ao_sol - X_true, ord='fro')
 
-    print(f"AO error on observed entries: {observed_error_ao:.6f}")
-    print(f"AO error on full matrix: {full_error_ao:.6f}")
-    print(f"AO time: {end - start:.4f} seconds")
+    print(f"AON error on observed entries: {observed_error_ao:.6f}")
+    print(f"AON error on full matrix: {full_error_ao:.6f}")
+    print(f"AON time: {end - start:.4f} seconds")
 
     if hist:
         plt.plot(hist, '--', label='AO Residual')
