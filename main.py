@@ -1,17 +1,18 @@
-# Press Maiusc+F10 to execute it or replace it with your code.
 import time
 from sklearn.decomposition import TruncatedSVD
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.sparse import csr_matrix
-from scipy.sparse.linalg import svds
+
+from plot_utils import plot_lambda_results, plot_unaggregated_per_seed, plot_3d_surface, top_k_results
 
 
-def alternating_optimization(u, X, X_mask, max_it=100, eps=1e-8, lambda_reg=1e-8, verbose=False, track_residuals=False, norm_v=False):
+def alternating_optimization(u, X, X_mask, max_it=100, eps=1e-12, lambda_reg=1e-8, v=None, verbose=False,
+                             track_residuals=False, norm_v=False):
     """
     Alternating optimization for matrix completion.
 
     :param u: Initial guess for vector u (n,)
+    :param v: Initial guess for vector v (n,)
     :param X: Incomplete matrix (n x n), where missing entries are zeros
     :param X_mask: Binary mask of observed entries (n x n)
     :param max_it: Max number of iterations
@@ -27,9 +28,16 @@ def alternating_optimization(u, X, X_mask, max_it=100, eps=1e-8, lambda_reg=1e-8
     """
 
     n = X.shape[0]
-    v = np.zeros(n)
+    if v is None:
+        v = np.random.randn(n)
+
+    # Normalize v and adjust u
+    v_norm = np.linalg.norm(v)
+    v /= v_norm
+    u *= v_norm
+
     it = 0
-    prev_res = 1e8
+    prev_res = 1e12
     improvement = prev_res
 
     residual_history = []
@@ -72,7 +80,6 @@ def alternating_optimization(u, X, X_mask, max_it=100, eps=1e-8, lambda_reg=1e-8
                 v /= v_norm
                 u *= v_norm
 
-
         if verbose and (it % 10 == 0 or it == 1):
             print(f"[AO] Iter {it}, Residual: {res:.6f}, Improvement: {improvement:.6f}")
         if track_residuals:
@@ -81,7 +88,139 @@ def alternating_optimization(u, X, X_mask, max_it=100, eps=1e-8, lambda_reg=1e-8
     return u, v, it, res, residual_history if track_residuals else None
 
 
-def multi_seed_lambda_sweep(num_seeds, n, density, lambda_values, maxit=500, eps=1e-6):
+def gradient_descent_rank1(X, X_mask, u_init=None, v_init=None,
+                           max_it=1000, lr=1e-2, lambda_reg=0.0,
+                           tol=1e-6, verbose=False, track_residuals=False):
+    """
+    Gradient descent for rank-1 matrix completion.
+
+    :param X: Incomplete matrix (n x n), missing entries are zero
+    :param X_mask: Binary mask of observed entries (n x n)
+    :param u_init: Optional initialization for u (n,)
+    :param v_init: Optional initialization for v (n,)
+    :param max_it: Maximum iterations
+    :param lr: Learning rate
+    :param lambda_reg: Regularization strength (lambda)
+    :param tol: Stop if improvement < tol
+    :param verbose: Print progress
+    :param track_residuals: Return residual history
+    :return: u, v, iters, residual, (residual_history if tracked)
+    """
+
+    n = X.shape[0]
+    u = u_init if u_init is not None else np.random.randn(n)
+    v = v_init if v_init is not None else np.random.randn(n)
+
+    residual_history = []
+    prev_residual = np.inf
+
+    for it in range(1, max_it + 1):
+        A_hat = np.outer(u, v)
+        residual = (A_hat - X) * X_mask
+
+        # Calcola i gradienti in float64 per evitare overflow numerici
+        grad_u = 2 * (residual.astype(np.float64) @ v.astype(np.float64)) + 2 * lambda_reg * u.astype(np.float64)
+        grad_v = 2 * (residual.T.astype(np.float64) @ u.astype(np.float64)) + 2 * lambda_reg * v.astype(np.float64)
+
+        # Update step
+        u -= lr * grad_u
+        v -= lr * grad_v
+
+        # Compute loss
+        res_norm = np.linalg.norm(residual, 'fro')
+
+        if track_residuals:
+            residual_history.append(res_norm)
+
+        if verbose and (it % 10 == 0 or it == 1):
+            print(f"[GD] Iter {it}, Residual: {res_norm:.6f}")
+
+        if np.abs(prev_residual - res_norm) < tol:
+            break
+        prev_residual = res_norm
+
+    return u, v, it, res_norm, residual_history if track_residuals else None
+
+
+def gradient_grid_sweep(
+    num_seeds, n, density,
+    lambda_values, lr_values,
+    grad_solver,
+    max_it=1000, eps=1e-6
+):
+    """
+    Evaluate gradient descent solver over a grid of (lambda, learning rate) pairs.
+
+    :param num_seeds: Number of random seeds to average over
+    :param n: Matrix size
+    :param density: Observation density
+    :param lambda_values: List of regularization values to scan
+    :param lr_values: List of learning rates to scan
+    :param grad_solver: Gradient-based solver function with signature:
+        (u0, v0, X, X_mask, lr, lambda_reg, max_it, eps)
+    :param max_it: Max iterations
+    :param eps: Convergence threshold
+    :return: Dictionary with metrics for each (lambda, lr) pair
+    """
+
+    results = {}
+
+    for seed in range(num_seeds):
+        np.random.seed(seed)
+
+        print(f"\n=== Seed {seed} ===")
+
+        # Ground truth and observed data
+        u_true = np.random.randn(n)
+        v_true = np.random.randn(n)
+        X_true = np.outer(u_true, v_true)
+        mask = (np.random.rand(n, n) < density)
+        X_obs = X_true * mask
+
+        for lam in lambda_values:
+            for lr in lr_values:
+                key = (lam, lr)
+                if key not in results:
+                    results[key] = {'obs_errors': [], 'full_errors': [], 'iters': []}
+
+                u0 = np.random.randn(n)
+                v0 = np.random.randn(n)
+
+                u, v, iters, _, _ = grad_solver(
+                    X_obs, mask,
+                    u_init=u0.copy(), v_init=v0.copy(),
+                    lr=lr,
+                    lambda_reg=lam,
+                    max_it=max_it,
+                    tol=eps
+                )
+
+                A_hat = np.outer(u, v)
+                obs_error = np.linalg.norm((A_hat - X_true) * mask, ord='fro')
+                full_error = np.linalg.norm(A_hat - X_true, ord='fro')
+
+                results[key]['obs_errors'].append(obs_error)
+                results[key]['full_errors'].append(full_error)
+                results[key]['iters'].append(iters)
+
+    # Aggregate stats
+    aggregated = []
+    for (lam, lr), res in results.items():
+        aggregated.append({
+            'lambda': lam,
+            'lr': lr,
+            'obs_mean': np.mean(res['obs_errors']),
+            'obs_std': np.std(res['obs_errors']),
+            'full_mean': np.mean(res['full_errors']),
+            'full_std': np.std(res['full_errors']),
+            'iters_mean': np.mean(res['iters']),
+            'iters_std': np.std(res['iters']),
+        })
+
+    return aggregated, results
+
+
+def als_lambda_sweep(num_seeds, n, density, lambda_values, maxit=500, eps=1e-6, norm_v=True):
     """
     Perform tests on a set of lambda values across multiple seeds to assess average performance.
 
@@ -105,12 +244,16 @@ def multi_seed_lambda_sweep(num_seeds, n, density, lambda_values, maxit=500, eps
         mask = (np.random.rand(n, n) < density)
         X_obs = X_true * mask
         u0 = np.random.randn(n)
+        v0 = np.random.randn(n)
 
         print(f"\n=== Seed {seed} ===")
         for lam in lambda_values:
             u, v, it, res, _ = alternating_optimization(
-                u0.copy(), X_obs, mask, max_it=maxit, eps=eps, lambda_reg=lam, verbose=False, track_residuals=False
+                u0.copy(), X_obs, mask, v=v0.copy(), max_it=maxit, eps=eps, lambda_reg=lam, verbose=False,
+                track_residuals=False,
+                norm_v=norm_v
             )
+
             A_hat = np.outer(u, v)
 
             observed_error = np.linalg.norm((A_hat - X_true) * mask, ord='fro')
@@ -139,128 +282,13 @@ def multi_seed_lambda_sweep(num_seeds, n, density, lambda_values, maxit=500, eps
     return aggregated_results, results_per_lambda
 
 
-def plot_lambda_results(aggregated_results):
-    lams = [r['lambda'] for r in aggregated_results]
-    obs_means = [r['obs_mean'] for r in aggregated_results]
-    obs_stds = [r['obs_std'] for r in aggregated_results]
-    full_means = [r['full_mean'] for r in aggregated_results]
-    full_stds = [r['full_std'] for r in aggregated_results]
-    iters_means = [r['iters_mean'] for r in aggregated_results]
-    iters_stds = [r['iters_std'] for r in aggregated_results]
-
-    plt.figure(figsize=(12, 5))
-
-    plt.subplot(1, 2, 1)
-    plt.errorbar(lams, obs_means, yerr=obs_stds, fmt='o-', label="Observed error")
-    plt.errorbar(lams, full_means, yerr=full_stds, fmt='x--', label="Full error")
-    plt.xscale('log')
-    plt.yscale('log')
-    plt.xlabel("lambda")
-    plt.ylabel("Error")
-    plt.title("Error vs Lambda (mean ± std)")
-    plt.legend()
-    plt.grid(True)
-
-    plt.subplot(1, 2, 2)
-    plt.errorbar(lams, iters_means, yerr=iters_stds, fmt='s-', color='purple')
-    plt.xscale('log')
-    plt.xlabel("lambda")
-    plt.ylabel("Iterations")
-    plt.title("Iterations vs Lambda (mean ± std)")
-    plt.grid(True)
-
-    plt.tight_layout()
-    plt.show()
-
-
-def plot_unaggregated_per_seed(results_per_lambda):
-    """
-    Plot full and observed errors for each lambda, showing every seed's result (no aggregation).
-    """
-    lambda_values = sorted(results_per_lambda.keys())
-    num_lambdas = len(lambda_values)
-
-    plt.figure(figsize=(12, 5))
-
-    # Full errors per seed
-    plt.subplot(1, 2, 1)
-    for lam in lambda_values:
-        full_errs = results_per_lambda[lam]['full_errors']
-        plt.plot([lam] * len(full_errs), full_errs, 'o', alpha=0.6, label=f'{lam:.1e}')
-    plt.xscale('log')
-    plt.yscale('log')
-    plt.xlabel("lambda")
-    plt.ylabel("Full Error (per seed)")
-    plt.title("Full Error per Seed")
-    plt.grid(True)
-
-    # Observed errors per seed
-    plt.subplot(1, 2, 2)
-    for lam in lambda_values:
-        obs_errs = results_per_lambda[lam]['obs_errors']
-        plt.plot([lam] * len(obs_errs), obs_errs, 'x', alpha=0.6, label=f'{lam:.1e}')
-    plt.xscale('log')
-    plt.yscale('log')
-    plt.xlabel("lambda")
-    plt.ylabel("Observed Error (per seed)")
-    plt.title("Observed Error per Seed")
-    plt.grid(True)
-
-    plt.tight_layout()
-    plt.show()
-
-
-def soft_impute(X_obs, mask, rank=1, lambda_soft=1e-2, max_iters=100, tol=1e-4, verbose=False, constrained=True):
-    """
-    Soft-Impute with optional constraint on observed entries.
-
-    :param X_obs: Incomplete matrix with zeros in missing entries
-    :param mask: Boolean array where True indicates observed entries
-    :param rank: Number of singular values to keep
-    :param lambda_soft: Soft-thresholding value (shrinkage)
-    :param max_iters: Max iterations
-    :param tol: Convergence threshold on change
-    :param verbose: Print progress
-    :param constrained: If True, keep observed entries fixed (classic SI); if False, allow full updates (loose SI)
-    :return: Completed matrix
-    """
-    X_filled = X_obs.copy().astype(float)
-    prev_X = X_filled.copy()
-
-    for it in range(max_iters):
-        # SVD on current filled matrix
-        U, S, Vt = np.linalg.svd(X_filled, full_matrices=False)
-
-        # Soft-thresholding on singular values
-        S_thresh = np.maximum(S[:rank] - lambda_soft, 0)
-
-        # Reconstruct low-rank matrix
-        X_recon = (U[:, :rank] * S_thresh) @ Vt[:rank, :]
-
-        # Either keep observed entries fixed (classic) or allow all entries to update (loose)
-        if constrained:
-            X_filled[~mask] = X_recon[~mask]  # only update missing entries
-        else:
-            X_filled = X_recon  # update everything
-
-        # Check for convergence
-        diff = np.linalg.norm(X_filled - prev_X, ord='fro')
-        if verbose and (it % 10 == 0 or it == 1 or diff < tol):
-            print(f"[Soft-Impute {'Constrained' if constrained else 'Loose'}] Iter {it}, Change: {diff:.6f}")
-        if diff < tol:
-            break
-
-        prev_X = X_filled.copy()
-
-    return X_filled
-
-
-def compare_solvers(X_obs, X_true, u0, mask, lambda_r, plot=False):
+def compare_solvers(X_obs, X_true, u0, v0, mask, lambda_r, plot=False):
     """
     Compare the performance of Alternating Optimization (AO) and SVD on matrix completion.
     :param X_obs: Incomplete matrix (n x n), where missing entries are zeros
     :param X_true: Ground truth matrix (n x n)
     :param u0: Initial guess for vector u (n,)
+    :param v0: Initial guess for vector v (n,)
     :param mask: Binary mask of observed entries (n x n)
     :param lambda_r: Regularization strength (lambda)
     :param plot: If True, plot the convergence of AO
@@ -268,8 +296,8 @@ def compare_solvers(X_obs, X_true, u0, mask, lambda_r, plot=False):
 
     # Perform AO
     start = time.time()
-    u, v, it, res, hist = alternating_optimization(u0, X_obs, mask, max_it=500, lambda_reg=lambda_r,
-                                                   verbose=False,
+    u, v, it, res, hist = alternating_optimization(u0.copy(), X_obs, mask, max_it=200, lambda_reg=lambda_r,
+                                                   v=v0.copy(), verbose=False,
                                                    track_residuals=plot)
     end = time.time()
 
@@ -286,21 +314,11 @@ def compare_solvers(X_obs, X_true, u0, mask, lambda_r, plot=False):
     print(f"AO error on full matrix: {full_error_ao:.6f}")
     print(f"AO time: {end - start:.4f} seconds")
 
-    if hist:
-        plt.plot(hist, '--', label='AO Residual')
-        plt.xlabel("Iteration")
-        plt.ylabel("Residual")
-        plt.yscale('log')
-        plt.title("Convergence of Alternating Optimization")
-        plt.legend()
-        plt.grid(True)
-        plt.show()
-
-    # Perform AO with normalized v
+    # Perform AO with norm constraint
     start = time.time()
-    u, v, it, res, hist = alternating_optimization(u0, X_obs, mask, max_it=500, lambda_reg=lambda_r/1000,
-                                                   verbose=False,
-                                                   track_residuals=plot, norm_v=True)
+    u, v, it, res, hist2 = alternating_optimization(u0.copy(), X_obs, mask, max_it=200, lambda_reg=1e-02,
+                                                    v=v0.copy(), verbose=False,
+                                                    track_residuals=plot, norm_v=True)
     end = time.time()
 
     # Distance comparisons
@@ -316,8 +334,9 @@ def compare_solvers(X_obs, X_true, u0, mask, lambda_r, plot=False):
     print(f"AON error on full matrix: {full_error_ao:.6f}")
     print(f"AON time: {end - start:.4f} seconds")
 
-    if hist:
+    if hist2 and hist:
         plt.plot(hist, '--', label='AO Residual')
+        plt.plot(hist2, '--', label='AON Residual')
         plt.xlabel("Iteration")
         plt.ylabel("Residual")
         plt.yscale('log')
@@ -326,26 +345,41 @@ def compare_solvers(X_obs, X_true, u0, mask, lambda_r, plot=False):
         plt.grid(True)
         plt.show()
 
-
-    # SVD solution
-
-    # time the svd
+    # Perform Gradient Descent
     start = time.time()
-    # noinspection PyTypeChecker
-    U, S, Vt = svds(csr_matrix(X_obs), k=1)
-    sol_svd = (U @ np.diag(S) @ Vt)
+
+    lr = 9.41e-04
+    lambda_reg = 6.95e-05
+    u, v, it, res, hist_3 = gradient_descent_rank1(X_obs, mask, u_init=u0.copy(), v_init=v0.copy(),
+                                                   max_it=1500, lr=lr, lambda_reg=lambda_reg,
+                                                   tol=1e-8, verbose=False, track_residuals=plot)
     end = time.time()
 
-    observed_error_svd = np.linalg.norm((sol_svd - X_true) * mask, ord='fro')
-    full_error_svd = np.linalg.norm(sol_svd - X_true, ord='fro')
+    # Distance comparisons
+    gd_sol = np.outer(u, v)
+    EY = np.linalg.norm((gd_sol - X_obs) * mask, 'fro')
+    print(f"GD: Residual={res:.4f}, Distance={EY:.4f}, Iter={it}")
+    # Errors
+    observed_error_gd = np.linalg.norm((gd_sol - X_true) * mask, ord='fro')
+    full_error_gd = np.linalg.norm(gd_sol - X_true, ord='fro')
+    print(f"GD error on observed entries: {observed_error_gd:.6f}")
+    print(f"GD error on full matrix: {full_error_gd:.6f}")
+    print(f"GD time: {end - start:.4f} seconds")
 
-    print(f"SVD error on observed entries: {observed_error_svd:.6f}")
-    print(f"SVD error on full matrix: {full_error_svd:.6f}")
-    print(f"SVD time: {end - start:.4f} seconds")
+    if hist_3:
+        plt.plot(hist_3, '--', label='GD Residual')
+        plt.xlabel("Iteration")
+        plt.ylabel("Residual")
+        plt.yscale('log')
+        plt.title("Convergence of Gradient Descent")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
 
     # Truncated SVD solution
     # Fill missing entries with mean of observed entries
     X_filled = X_obs.copy()
+    X_filled[~mask] = X_obs[mask].mean()
     start = time.time()
     svd = TruncatedSVD(n_components=1)
     U = svd.fit_transform(X_filled)
@@ -359,36 +393,57 @@ def compare_solvers(X_obs, X_true, u0, mask, lambda_r, plot=False):
     print(f"Truncated SVD error on full matrix: {full_error_svd:.6f}")
     print(f"Truncated SVD time: {end - start:.4f} seconds")
 
-    # Soft-Impute with constrained and loose options
-    # Constrained Soft-Impute, keeping observed entries fixed
-    start = time.time()
-    X_filled = soft_impute(X_obs, mask, rank=1, lambda_soft=0.01, max_iters=100)
-    end = time.time()
-    observed_error = np.linalg.norm((X_filled - X_true) * mask, ord='fro') # error on observed entries is always 0
-    full_error = np.linalg.norm(X_filled - X_true, ord='fro')
-    print(f"Soft-Impute Constr. error on observed entries: {observed_error:.6f}")
-    print(f"Soft-Impute Constr. error on full matrix: {full_error:.6f}")
-    print(f"Soft-Impute Constr. time: {end - start:.4f} seconds")
+def testGD():
+    # Perform grid search for gradient descent
+    num_seeds = 40
+    lambda_values = np.logspace(-5, -1, 20)
+    lr_values = np.logspace(-3.75, -2.5, 20)
+    aggregated_results, results_per_lamda = gradient_grid_sweep(
+        num_seeds, n, density,
+        lambda_values, lr_values,
+        grad_solver=gradient_descent_rank1,
+        max_it=1000, eps=1e-6
+    )
+    plot_3d_surface(aggregated_results)
 
-    # Loose Soft-Impute, allowing all entries to update
-    start = time.time()
-    X_filled = soft_impute(X_obs, mask, rank=1, lambda_soft=0.01, max_iters=100, constrained=False)
-    end = time.time()
-    observed_error = np.linalg.norm((X_filled - X_true) * mask, ord='fro')
-    full_error = np.linalg.norm(X_filled - X_true, ord='fro')
-    print(f"Soft-Impute Loose error on observed entries: {observed_error:.6f}")
-    print(f"Soft-Impute Loose error on full matrix: {full_error:.6f}")
-    print(f"Soft-Impute Loose time: {end - start:.4f} seconds")
+    best_results = top_k_results(aggregated_results, k=5, sort_by='full_mean')
 
+    for i, res in enumerate(best_results, 1):
+        print(
+            f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
 
-# Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-
     # Parameters
     # Size of the matrix
     n = 100
     # Density of observed entries
     density = 10 / n
+
+    # Perform lambda search for alternating optimization
+    lambda_scan = False
+    if lambda_scan:
+        # Parameters for lambda sweep
+        num_seeds = 100
+        lambda_values = np.logspace(-5, -1, 20)
+
+        aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, density, lambda_values,
+                                                                 norm_v=False)
+        plot_lambda_results(aggregated_results)
+        plot_unaggregated_per_seed(results_per_lamda)
+
+        # aggregated_results, results_per_lamda = multi_seed_lambda_sweep(num_seeds, n, density, lambda_values, false)
+        # plot_lambda_results(aggregated_results)
+        # plot_unaggregated_per_seed(results_per_lamda)
+
+        exit(0)
+
+    if False:
+        testGD()
+        exit(0)
+
+    # seed
+    seed = int(time.time())
+    np.random.seed(seed)
 
     # Ground truth rank-1 matrix
     u_true = np.random.randn(n)
@@ -402,23 +457,13 @@ if __name__ == '__main__':
     X_obs = X_true * mask
 
     u0 = np.random.randn(n)  # random init instead of ones
-
-    # Perform lambda search for alternating optimization
-    lambda_scan = False
-    if lambda_scan:
-        # Parameters for lambda sweep
-        num_seeds = 20
-        lambda_values = np.logspace(-5, 0, 20)
-
-        aggregated_results, results_per_lamda = multi_seed_lambda_sweep(num_seeds, n, density, lambda_values)
-        plot_lambda_results(aggregated_results)
-        plot_unaggregated_per_seed(results_per_lamda)
+    v0 = np.random.randn(n)
 
     # Regularization parameter
-    lambda_r = 4.03e-01
+    lambda_r = 0.403
 
     # Benchmark the different solvers
-    compare_solvers(X_obs, X_true, u0.copy(), mask, lambda_r, plot=True)
+    compare_solvers(X_obs, X_true, u0.copy(), v0.copy(), mask, lambda_r, plot=True)
 
     # Add noise to observed entries
     noise_std = 0.1
@@ -427,4 +472,5 @@ if __name__ == '__main__':
 
     # Benchmark the different solvers with noise
     print("\n=== Noisy Observations ===")
-    compare_solvers(X_noisy_obs, X_true, u0.copy(), mask, lambda_r, plot=True)
+    compare_solvers(X_noisy_obs, X_true, u0.copy(), v0.copy(), mask, lambda_r, plot=True)
+
