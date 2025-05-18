@@ -7,11 +7,10 @@ from plot_utils import plot_3d_surface, top_k_results, plot_lambda_results, plot
 def testGD():
     # Perform grid search for gradient descent
     num_seeds = 20
-    lambda_values = np.logspace(-3, -0.5, 20)
-    lr_values = np.logspace(-3.5, -2.5, 20)
+    lambda_values = np.logspace(-1.25, 0, 20)
+    lr_values = np.logspace(-2.75, -2.0, 20)
 
     # Gaussian initialization
-
     aggregated_results, results_per_lamda = gradient_grid_sweep(
         num_seeds,
         lambda_values, lr_values,
@@ -28,6 +27,9 @@ def testGD():
             f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
 
     # SVD initialization
+    lambda_values = np.logspace(-8, -1.25, 20)
+    lr_values = np.logspace(-2.6, -1.75, 20)
+
     aggregated_results, results_per_lamda = gradient_grid_sweep(
         num_seeds,
         lambda_values, lr_values,
@@ -58,6 +60,9 @@ def testGD():
             f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
 
     # Mean initialization
+    lambda_values = np.logspace(-1.5, -0.25, 20)
+    lr_values = np.logspace(-2.75, -2.4, 20)
+
     aggregated_results, results_per_lamda = gradient_grid_sweep(
         num_seeds,
         lambda_values, lr_values,
@@ -85,8 +90,6 @@ def gradient_grid_sweep(
     :param init: Initialization strategy for u and v
     :param noise: Noise level to add to the svd initialization
     :param num_seeds: Number of random seeds to average over
-    :param n: Matrix size
-    :param density: Observation density
     :param lambda_values: List of regularization values to scan
     :param lr_values: List of learning rates to scan
     :param grad_solver: Gradient-based solver function with signature:
@@ -109,13 +112,6 @@ def gradient_grid_sweep(
                                seed=seed, epsilon=noise)
 
         print(f"\n=== Seed {seed} ===")
-
-        # Ground truth and observed data
-        u_true = np.random.randn(n)
-        v_true = np.random.randn(n)
-        X_true = np.outer(u_true, v_true)
-        mask = (np.random.rand(n, n) < density)
-        X_obs = X_true * mask
 
         for lam in lambda_values:
             for lr in lr_values:

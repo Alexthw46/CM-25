@@ -1,17 +1,14 @@
-from matplotlib import pyplot as plt
-
-import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
 
-def plot_3d_surface(results, x_key='lambda', y_key='lr', z_key='full_mean', title=None):
+
+def plot_3d_surface(results, x_key='lambda', y_key='lr', title=None):
     """
-    Plot a 3D surface from aggregated grid sweep results.
+    Plot 3D surfaces for both full and observed errors from aggregated grid sweep results.
 
     :param results: List of dicts as returned by `gradient_grid_sweep`
     :param x_key: Key for x-axis (usually 'lambda')
     :param y_key: Key for y-axis (usually 'lr')
-    :param z_key: Key for z-axis (e.g., 'full_mean', 'obs_mean')
     :param title: Optional plot title
     """
 
@@ -20,27 +17,40 @@ def plot_3d_surface(results, x_key='lambda', y_key='lr', z_key='full_mean', titl
     y_vals = sorted(set(res[y_key] for res in results))
 
     X, Y = np.meshgrid(x_vals, y_vals)
-    Z = np.zeros_like(X)
+    Z_full = np.zeros_like(X)
+    Z_obs = np.zeros_like(X)
 
-    # Fill Z values
+    # Fill Z values for both full and observed errors
     for i, y in enumerate(y_vals):
         for j, x in enumerate(x_vals):
             for res in results:
                 if np.isclose(res[x_key], x) and np.isclose(res[y_key], y):
-                    Z[i, j] = res[z_key]
+                    Z_full[i, j] = res.get('full_mean', np.nan)
+                    Z_obs[i, j] = res.get('obs_mean', np.nan)
                     break
 
-    fig = plt.figure(figsize=(10, 7))
-    ax = fig.add_subplot(111, projection='3d')
+    fig = plt.figure(figsize=(18, 7))
 
-    ax.plot_surface(np.log10(X), np.log10(Y), Z, cmap='viridis', edgecolor='k', alpha=0.9)
-    ax.set_xlabel(f'log10({x_key})')
-    ax.set_ylabel(f'log10({y_key})')
-    ax.set_zlabel(z_key.replace('_', ' ').title())
+    # Full error surface
+    ax1 = fig.add_subplot(1, 2, 1, projection='3d')
+    surf1 = ax1.plot_surface(np.log10(X), np.log10(Y), Z_full, cmap='viridis', edgecolor='k', alpha=0.9)
+    ax1.set_xlabel(f'log10({x_key})')
+    ax1.set_ylabel(f'log10({y_key})')
+    ax1.set_zlabel('Full Error (mean)')
+    ax1.set_title("Full Error (mean) over log-scaled grid")
+    fig.colorbar(surf1, ax=ax1, shrink=0.5, aspect=10)
+
+    # Observed error surface
+    ax2 = fig.add_subplot(1, 2, 2, projection='3d')
+    surf2 = ax2.plot_surface(np.log10(X), np.log10(Y), Z_obs, cmap='plasma', edgecolor='k', alpha=0.9)
+    ax2.set_xlabel(f'log10({x_key})')
+    ax2.set_ylabel(f'log10({y_key})')
+    ax2.set_zlabel('Observed Error (mean)')
+    ax2.set_title("Observed Error (mean) over log-scaled grid")
+    fig.colorbar(surf2, ax=ax2, shrink=0.5, aspect=10)
+
     if title:
-        ax.set_title(title)
-    else:
-        ax.set_title(f"{z_key.replace('_', ' ').title()} over log-scaled grid")
+        fig.suptitle(title)
 
     plt.tight_layout()
     plt.show()
