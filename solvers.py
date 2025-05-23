@@ -82,14 +82,16 @@ def initialize_uv(X_obs, mask, strategy='gaussian', epsilon=0, seed=None):
             obs = mask[i, :]
             v_sub = v0[obs]
             x_row = X_obs[i, obs]
-            u0[i] = solve_least_squares(x_row, v_sub) if len(x_row) else 0.0
+            u0[i] = solve_least_squares(x_row, v_sub, 1e-8) if len(x_row) else 0.0
+
+        # rescale v0 and u0
+        v0_norm = np.linalg.norm(v0)
+        if v0_norm > 1e-12:
+            v0 /= v0_norm
+            u0 *= v0_norm
 
     else:
         raise ValueError(f"Unknown initialization strategy: {strategy}")
-
-    # Normalize v0, rescale u0
-
-    v_norm = np.linalg.norm(v0)
 
     return u0, v0
 
