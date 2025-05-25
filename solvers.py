@@ -1,4 +1,7 @@
+import time
+
 import numpy as np
+from sklearn.decomposition import TruncatedSVD
 
 
 def generate_synthetic_problem(m: int,
@@ -95,6 +98,18 @@ def initialize_uv(X_obs, mask, strategy='gaussian', epsilon=0, seed=None):
 
     return u0, v0
 
+def baseline_svd(X_true, X_obs, mask):
+    X_filled = X_obs.copy()
+    X_filled[~mask] = X_obs[mask].mean()  # mean imputation
+    start = time.time()
+    svd = TruncatedSVD(n_components=1)
+    U = svd.fit_transform(X_filled)
+    V = svd.components_
+    svd_sol = U @ V
+    end = time.time()
+    observed_error_svd = np.linalg.norm((svd_sol - X_true) * mask, 'fro')
+    full_error_svd = np.linalg.norm(svd_sol - X_true, 'fro')
+    return observed_error_svd, full_error_svd, end - start
 
 def solve_least_squares(x_vals: np.ndarray, y_vals: np.ndarray, lambda_reg: float = 0.0) -> float:
     """
@@ -192,10 +207,10 @@ def alternating_optimization(X: np.ndarray, X_mask: np.ndarray, u: np.ndarray, v
 
         # cast to float64 for type consistency
         rec_error = rec_error.astype(np.float64)
+        obj_val = rec_error ** 2 + lambda_reg * (np.linalg.norm(u) ** 2 + np.linalg.norm(v) ** 2)
 
         # Full objective value with regularization
         if track_residuals:
-            obj_val = rec_error ** 2 + lambda_reg * (np.linalg.norm(u) ** 2 + np.linalg.norm(v) ** 2)
             histories['residuals'].append(rec_error ** 2)
             histories['objective'].append(obj_val)
 
@@ -282,7 +297,7 @@ def gradient_descent_rank1(X, X_mask, u_init=None, v_init=None,
             print(f"[GD] Iter {it}, Objective: {obj:.6f}")
 
         # Stopping criterion: check improvement
-        if np.abs(prev_obj - obj) < tol:
+        if (prev_obj - obj) < tol:
             break
         prev_obj = obj
 

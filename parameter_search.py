@@ -6,7 +6,7 @@ from plot_utils import plot_3d_surface, top_k_results, plot_lambda_results, plot
 
 def testGD():
     # Perform grid search for gradient descent
-    num_seeds = 20
+    num_seeds = 50
     lambda_values = np.logspace(-1.25, 0, 20)
     lr_values = np.logspace(-2.75, -2.0, 20)
 
@@ -215,7 +215,8 @@ def als_lambda_sweep(num_seeds, n, m, density, lambda_values, maxit=500, eps=1e-
 
 def test_ALS():
     # Parameters for lambda sweep
-    num_seeds = 20
+    num_seeds = 50
+    print(" === Gaussian Initialization ===")
     lambda_values = np.logspace(-3, 0, 20)
     aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=False)
     plot_lambda_results(aggregated_results)
@@ -272,7 +273,7 @@ if __name__ == "__main__":
     density = 10 / n
 
     # Perform lambda search for alternating optimization
-    switch = False #True for ALS, False for GD
+    switch = True #True for ALS, False for GD
     if switch:
         test_ALS()
     else:
