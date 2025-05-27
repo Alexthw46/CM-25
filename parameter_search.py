@@ -61,7 +61,7 @@ def testGD():
 
     # Mean initialization
     lambda_values = np.logspace(-1.5, -0.25, 20)
-    lr_values = np.logspace(-2.75, -2.4, 20)
+    lr_values = np.logspace(-5., -2.4, 20)
 
     aggregated_results, results_per_lamda = gradient_grid_sweep(
         num_seeds,
@@ -102,8 +102,6 @@ def gradient_grid_sweep(
     results = {}
 
     for seed in range(num_seeds):
-        np.random.seed(seed)
-
         X_true, X_obs, mask, u_true, v_true = generate_synthetic_problem(n, m, density,
                                                                          seed + 1)
         # seed+1 to avoid overlap gaussian init with the true uv seed
@@ -273,7 +271,7 @@ if __name__ == "__main__":
     density = 10 / n
 
     # Perform lambda search for alternating optimization
-    switch = True #True for ALS, False for GD
+    switch = False #True for ALS, False for GD
     if switch:
         test_ALS()
     else:

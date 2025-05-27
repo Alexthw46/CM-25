@@ -60,15 +60,7 @@ def initialize_uv(X_obs, mask, strategy='gaussian', epsilon=0, seed=None):
         v0 = np.random.randn(n)
 
     elif strategy == 'svd':
-        X_filled = X_obs.copy()
-        mean_val = X_obs[mask].mean()
-        X_filled[~mask] = mean_val
-
-        # SVD initialization
-        U, S, VT = np.linalg.svd(X_filled, full_matrices=False)
-        # Scale by singular values
-        u0 = U[:, 0] * np.sqrt(S[0])
-        v0 = VT[0, :] * np.sqrt(S[0])
+        u0, v0 = mean_impute_svd(X_obs, mask)
 
         if epsilon > 0:
             u0 += epsilon * np.random.randn(m)
@@ -98,6 +90,54 @@ def initialize_uv(X_obs, mask, strategy='gaussian', epsilon=0, seed=None):
 
     return u0, v0
 
+# Impute missing values using mean imputation and perform SVD
+def mean_impute_svd(X_obs, mask, mean = 'global'):
+    X_filled = X_obs.copy()
+    if mean == 'row':
+        # Row-wise mean imputation
+        mean_val = np.zeros_like(X_filled)
+        for i in range(X_obs.shape[0]):
+            row_mask = mask[i, :]
+            if np.any(row_mask):
+                mean_val[i, ~mask[i, :]] = X_obs[i, row_mask].mean()
+            else:
+                mean_val[i, ~mask[i, :]] = 0.0
+        X_filled[~mask] = mean_val[~mask]
+    elif mean == 'column':
+        # Column-wise mean imputation
+        mean_val = np.zeros_like(X_filled)
+        for j in range(X_obs.shape[1]):
+            col_mask = mask[:, j]
+            if np.any(col_mask):
+                mean_val[~mask[:, j], j] = X_obs[col_mask, j].mean()
+            else:
+                mean_val[~mask[:, j], j] = 0.0
+        X_filled[~mask] = mean_val[~mask]
+    else:
+        # Global mean imputation
+        mean_val = X_obs[mask].mean() if np.any(mask) else 0.0
+        X_filled[~mask] = mean_val
+
+    # SVD initialization
+    U, S, VT = np.linalg.svd(X_filled, full_matrices=False)
+    # Scale by singular values
+    u0 = U[:, 0] * np.sqrt(S[0])
+    v0 = VT[0, :] * np.sqrt(S[0])
+    return u0, v0
+
+# Baseline SVD using numpy, slower but returns the true u and v scaled by singular value
+def baseline_svd_numpy(X_true, X_obs, mask):
+    start = time.time()
+
+    u0,v0 = mean_impute_svd(X_obs, mask)
+    svd_sol = np.outer(u0, v0)
+
+    end = time.time()
+    observed_error_svd = np.linalg.norm((svd_sol - X_true) * mask, 'fro')
+    full_error_svd = np.linalg.norm(svd_sol - X_true, 'fro')
+    return observed_error_svd, full_error_svd, end - start
+
+# SKLearn SVD baseline, faster but doesn't return the true uv
 def baseline_svd(X_true, X_obs, mask):
     X_filled = X_obs.copy()
     X_filled[~mask] = X_obs[mask].mean()  # mean imputation
@@ -209,12 +249,15 @@ def alternating_optimization(X: np.ndarray, X_mask: np.ndarray, u: np.ndarray, v
         rec_error = rec_error.astype(np.float64)
         obj_val = rec_error ** 2 + lambda_reg * (np.linalg.norm(u) ** 2 + np.linalg.norm(v) ** 2)
 
+        improvement = prev_res - rec_error
+        if improvement <= eps:
+            break
+
         # Full objective value with regularization
         if track_residuals:
             histories['residuals'].append(rec_error ** 2)
             histories['objective'].append(obj_val)
 
-        improvement = prev_res - rec_error
         if verbose and (it == 1 or it % 10 == 0 or improvement <= eps):
             msg = f"Iter {it:3d}, Residual={rec_error:.6e}"
             if track_residuals:
@@ -222,8 +265,6 @@ def alternating_optimization(X: np.ndarray, X_mask: np.ndarray, u: np.ndarray, v
             msg += f", Improvement={improvement:.2e}"
             print(msg)
 
-        if improvement <= eps:
-            break
         prev_res = rec_error
 
     return u, v, it, rec_error, histories
