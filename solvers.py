@@ -90,8 +90,9 @@ def initialize_uv(X_obs, mask, strategy='gaussian', epsilon=0, seed=None):
 
     return u0, v0
 
+
 # Impute missing values using mean imputation and perform SVD
-def mean_impute_svd(X_obs, mask, mean = 'global'):
+def mean_impute_svd(X_obs, mask, mean='global'):
     X_filled = X_obs.copy()
     if mean == 'row':
         # Row-wise mean imputation
@@ -125,17 +126,19 @@ def mean_impute_svd(X_obs, mask, mean = 'global'):
     v0 = VT[0, :] * np.sqrt(S[0])
     return u0, v0
 
+
 # Baseline SVD using numpy, slower but returns the true u and v scaled by singular value
 def baseline_svd_numpy(X_true, X_obs, mask):
     start = time.time()
 
-    u0,v0 = mean_impute_svd(X_obs, mask)
+    u0, v0 = mean_impute_svd(X_obs, mask)
     svd_sol = np.outer(u0, v0)
 
     end = time.time()
     observed_error_svd = np.linalg.norm((svd_sol - X_true) * mask, 'fro')
     full_error_svd = np.linalg.norm(svd_sol - X_true, 'fro')
     return observed_error_svd, full_error_svd, end - start
+
 
 # SKLearn SVD baseline, faster but doesn't return the true uv
 def baseline_svd(X_true, X_obs, mask):
@@ -150,6 +153,7 @@ def baseline_svd(X_true, X_obs, mask):
     observed_error_svd = np.linalg.norm((svd_sol - X_true) * mask, 'fro')
     full_error_svd = np.linalg.norm(svd_sol - X_true, 'fro')
     return observed_error_svd, full_error_svd, end - start
+
 
 def solve_least_squares(x_vals: np.ndarray, y_vals: np.ndarray, lambda_reg: float = 0.0) -> float:
     """
@@ -169,7 +173,7 @@ def solve_least_squares(x_vals: np.ndarray, y_vals: np.ndarray, lambda_reg: floa
 
 def alternating_optimization(X: np.ndarray, X_mask: np.ndarray, u: np.ndarray, v: np.ndarray = None, max_it: int = 100,
                              eps: float = 1e-12, lambda_reg: float = 1e-8, norm_v: bool = False, verbose: bool = False,
-                             track_residuals: bool = False):
+                             track_residuals: bool = False, patience=10):
     """
     Alternating optimization for rank-1 matrix completion.
 
@@ -183,6 +187,8 @@ def alternating_optimization(X: np.ndarray, X_mask: np.ndarray, u: np.ndarray, v
     :param norm_v: If True, normalize v (and rescale u) at each iteration
     :param verbose: If True, print progress
     :param track_residuals: If True, track residuals and objective values
+    :param patience: Patience for early stopping if there is improvement < eps
+
     :return:
         u, v: optimized factors
         it: number of iterations
@@ -210,6 +216,7 @@ def alternating_optimization(X: np.ndarray, X_mask: np.ndarray, u: np.ndarray, v
     prev_res = np.inf
     histories = {'residuals': [], 'objective': []} if track_residuals else None
 
+    stale_it = 0
     while it < max_it:
         it += 1
 
@@ -251,7 +258,10 @@ def alternating_optimization(X: np.ndarray, X_mask: np.ndarray, u: np.ndarray, v
 
         improvement = prev_res - rec_error
         if improvement <= eps:
-            break
+            if stale_it <= patience:
+                stale_it += 1
+            else:
+                break
 
         # Full objective value with regularization
         if track_residuals:
