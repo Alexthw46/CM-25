@@ -4,78 +4,84 @@ from solvers import alternating_optimization, gradient_descent_rank1, generate_s
 from plot_utils import plot_3d_surface, top_k_results, plot_lambda_results, plot_unaggregated_per_seed
 
 
-def testGD():
+def testGD(init=['gaussian', 'svd', 'svd+noise', 'mean']):
     # Perform grid search for gradient descent
     num_seeds = 50
-    lambda_values = np.logspace(-1.25, 0, 20)
-    lr_values = np.logspace(-2.75, -2.0, 20)
 
-    # Gaussian initialization
-    aggregated_results, results_per_lamda = gradient_grid_sweep(
-        num_seeds,
-        lambda_values, lr_values,
-        grad_solver=gradient_descent_rank1,
-        max_it=1000, eps=1e-6
-    )
-    plot_3d_surface(aggregated_results)
+    if 'gaussian' in init:
+        lambda_values = np.logspace(-1.25, 0, 20)
+        lr_values = np.logspace(-2.75, -2.0, 20)
 
-    best_results = top_k_results(aggregated_results, k=5, sort_by='full_mean')
+        # Gaussian initialization
+        aggregated_results, results_per_lamda = gradient_grid_sweep(
+            num_seeds,
+            lambda_values, lr_values,
+            grad_solver=gradient_descent_rank1,
+            max_it=1000, eps=1e-6
+        )
+        plot_3d_surface(aggregated_results)
 
-    print("\n=== Top 5 results Gaussian ===")
-    for i, res in enumerate(best_results, 1):
-        print(
-            f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
+        best_results = top_k_results(aggregated_results, k=5, sort_by='full_mean')
 
-    # SVD initialization
-    lambda_values = np.logspace(-8, -1.25, 20)
-    lr_values = np.logspace(-2.6, -1.75, 20)
+        print("\n=== Top 5 results Gaussian ===")
+        for i, res in enumerate(best_results, 1):
+            print(
+                f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
 
-    aggregated_results, results_per_lamda = gradient_grid_sweep(
-        num_seeds,
-        lambda_values, lr_values,
-        grad_solver=gradient_descent_rank1,
-        max_it=1000, eps=1e-6,
-        init='svd'
-    )
-    plot_3d_surface(aggregated_results)
-    best_results = top_k_results(aggregated_results, k=5, sort_by='full_mean')
-    print("\n=== Top 5 results SVD ===")
-    for i, res in enumerate(best_results, 1):
-        print(
-            f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
+    if 'svd' in init:
+        # SVD initialization
+        lambda_values = np.logspace(-8, -1.25, 20)
+        lr_values = np.logspace(-2.6, -1.75, 20)
 
-    # SVD initialization with noise
-    aggregated_results, results_per_lamda = gradient_grid_sweep(
-        num_seeds,
-        lambda_values, lr_values,
-        grad_solver=gradient_descent_rank1,
-        max_it=1000, eps=1e-6,
-        init='svd', noise=0.1
-    )
-    plot_3d_surface(aggregated_results)
-    best_results = top_k_results(aggregated_results, k=5, sort_by='full_mean')
-    print("\n=== Top 5 results SVD with noise ===")
-    for i, res in enumerate(best_results, 1):
-        print(
-            f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
+        aggregated_results, results_per_lamda = gradient_grid_sweep(
+            num_seeds,
+            lambda_values, lr_values,
+            grad_solver=gradient_descent_rank1,
+            max_it=1000, eps=1e-6,
+            init='svd'
+        )
+        plot_3d_surface(aggregated_results)
+        best_results = top_k_results(aggregated_results, k=5, sort_by='full_mean')
+        print("\n=== Top 5 results SVD ===")
+        for i, res in enumerate(best_results, 1):
+            print(
+                f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
 
-    # Mean initialization
-    lambda_values = np.logspace(-1.5, -0.25, 20)
-    lr_values = np.logspace(-5., -2.4, 20)
+        if 'svd+noise' in init:
+            # SVD initialization with noise
+            aggregated_results, results_per_lamda = gradient_grid_sweep(
+                num_seeds,
+                lambda_values, lr_values,
+                grad_solver=gradient_descent_rank1,
+                max_it=1000, eps=1e-6,
+                init='svd', noise=0.1
+            )
+            plot_3d_surface(aggregated_results)
+            best_results = top_k_results(aggregated_results, k=5, sort_by='full_mean')
+            print("\n=== Top 5 results SVD with noise ===")
+            for i, res in enumerate(best_results, 1):
+                print(
+                    f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
 
-    aggregated_results, results_per_lamda = gradient_grid_sweep(
-        num_seeds,
-        lambda_values, lr_values,
-        grad_solver=gradient_descent_rank1,
-        max_it=1000, eps=1e-6,
-        init='mean'
-    )
-    plot_3d_surface(aggregated_results)
-    best_results = top_k_results(aggregated_results, k=5, sort_by='full_mean')
-    print("\n=== Top 5 results Mean ===")
-    for i, res in enumerate(best_results, 1):
-        print(
-            f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
+    if 'mean' in init:
+        # Mean initialization
+        lambda_values = np.logspace(-1.5, -0.25, 20)
+        lr_values = np.logspace(-5., -2.4, 20)
+
+        aggregated_results, results_per_lamda = gradient_grid_sweep(
+            num_seeds,
+            lambda_values, lr_values,
+            grad_solver=gradient_descent_rank1,
+            max_it=1000, eps=1e-6,
+            init='mean'
+        )
+        plot_3d_surface(aggregated_results)
+        best_results = top_k_results(aggregated_results, k=5, sort_by='full_mean')
+        print("\n=== Top 5 results Mean ===")
+        for i, res in enumerate(best_results, 1):
+            print(
+                f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
+
 
 def gradient_grid_sweep(
         num_seeds,
@@ -211,55 +217,62 @@ def als_lambda_sweep(num_seeds, n, m, density, lambda_values, maxit=500, eps=1e-
     return aggregated_results, results_per_lambda
 
 
-def test_ALS():
+def test_ALS(init=['gaussian', 'svd', 'svd+noise', 'mean']):
     # Parameters for lambda sweep
     num_seeds = 50
-    print(" === Gaussian Initialization ===")
-    lambda_values = np.logspace(-3, 0, 20)
-    aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=False)
-    plot_lambda_results(aggregated_results)
-    plot_unaggregated_per_seed(results_per_lamda)
-    print("\n=== === Norm applied === ===")
-    lambda_values = np.logspace(-5, -1.5, 20)
-    aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=True)
-    plot_lambda_results(aggregated_results)
-    plot_unaggregated_per_seed(results_per_lamda)
-    print("\n=== SVD Initialization without Noise ===")
-    lambda_values = np.logspace(-8, 0, 20)
-    aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=False,
-                                                             init='svd')
-    plot_lambda_results(aggregated_results)
-    plot_unaggregated_per_seed(results_per_lamda)
-    print("\n=== === Norm applied === ===")
-    lambda_values = np.logspace(-8, -1.5, 20)
-    aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=True,
-                                                             init='svd')
-    plot_lambda_results(aggregated_results)
-    plot_unaggregated_per_seed(results_per_lamda)
-    print("\n=== SVD Initialization with Noise ===")
-    lambda_values = np.logspace(-12, -5, 20)
-    aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values,
-                                                             norm_v=False, init='svd', noise=0.1)
-    plot_lambda_results(aggregated_results)
-    plot_unaggregated_per_seed(results_per_lamda)
-    print("\n=== === Norm applied === ===")
-    lambda_values = np.logspace(-12, -5, 20)
-    aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values,
-                                                             norm_v=True, init='svd', noise=0.1)
-    plot_lambda_results(aggregated_results)
-    plot_unaggregated_per_seed(results_per_lamda)
-    print("\n=== Mean Initialization ===")
-    lambda_values = np.logspace(-3, 0, 20)
-    aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=False,
-                                                             init='mean')
-    plot_lambda_results(aggregated_results)
-    plot_unaggregated_per_seed(results_per_lamda)
-    print("\n=== === Norm applied === ===")
-    lambda_values = np.logspace(-5, -1.5, 20)
-    aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=True,
-                                                             init='mean')
-    plot_lambda_results(aggregated_results)
-    plot_unaggregated_per_seed(results_per_lamda)
+    if 'gaussian' in init:
+        print(" === Gaussian Initialization ===")
+        lambda_values = np.logspace(-3, 0, 20)
+        aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=False)
+        plot_lambda_results(aggregated_results)
+        plot_unaggregated_per_seed(results_per_lamda)
+        print("\n=== === Norm applied === ===")
+        lambda_values = np.logspace(-5, -1.5, 20)
+        aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=True)
+        plot_lambda_results(aggregated_results)
+        plot_unaggregated_per_seed(results_per_lamda)
+
+    if 'svd' in init:
+        print("\n=== SVD Initialization without Noise ===")
+        lambda_values = np.logspace(-8, 0, 20)
+        aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=False,
+                                                                 init='svd')
+        plot_lambda_results(aggregated_results)
+        plot_unaggregated_per_seed(results_per_lamda)
+        print("\n=== === Norm applied === ===")
+        lambda_values = np.logspace(-8, -1.5, 20)
+        aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=True,
+                                                                 init='svd')
+        plot_lambda_results(aggregated_results)
+        plot_unaggregated_per_seed(results_per_lamda)
+
+    if 'svd+noise' in init:
+        print("\n=== SVD Initialization with Noise ===")
+        lambda_values = np.logspace(-12, -5, 20)
+        aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values,
+                                                                 norm_v=False, init='svd', noise=0.1)
+        plot_lambda_results(aggregated_results)
+        plot_unaggregated_per_seed(results_per_lamda)
+        print("\n=== === Norm applied === ===")
+        lambda_values = np.logspace(-12, -5, 20)
+        aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values,
+                                                                 norm_v=True, init='svd', noise=0.1)
+        plot_lambda_results(aggregated_results)
+        plot_unaggregated_per_seed(results_per_lamda)
+
+    if 'mean' in init:
+        print("\n=== Mean Initialization ===")
+        lambda_values = np.logspace(-3, 0, 20)
+        aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=False,
+                                                                 init='mean')
+        plot_lambda_results(aggregated_results)
+        plot_unaggregated_per_seed(results_per_lamda)
+        print("\n=== === Norm applied === ===")
+        lambda_values = np.logspace(-5, -1.5, 20)
+        aggregated_results, results_per_lamda = als_lambda_sweep(num_seeds, n, m, density, lambda_values, norm_v=True,
+                                                                 init='mean')
+        plot_lambda_results(aggregated_results)
+        plot_unaggregated_per_seed(results_per_lamda)
 
 
 if __name__ == "__main__":
@@ -271,8 +284,8 @@ if __name__ == "__main__":
     density = 10 / n
 
     # Perform lambda search for alternating optimization
-    switch = False #True for ALS, False for GD
+    switch = True  # True for ALS, False for GD
     if switch:
-        test_ALS()
+        test_ALS(['gaussian'])
     else:
         testGD()

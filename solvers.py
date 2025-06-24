@@ -56,8 +56,8 @@ def initialize_uv(X_obs, mask, strategy='gaussian', epsilon=0, seed=None):
     m, n = X_obs.shape
 
     if strategy == 'gaussian':
-        u0 = np.random.randn(m)
-        v0 = np.random.randn(n)
+        u0 = np.random.randn(m) / np.sqrt(m)
+        v0 = np.random.randn(n) / np.sqrt(n)
 
     elif strategy == 'svd':
         u0, v0 = mean_impute_svd(X_obs, mask)
