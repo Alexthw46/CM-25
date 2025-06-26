@@ -7,6 +7,8 @@ from sklearn.decomposition import TruncatedSVD
 def generate_synthetic_problem(m: int,
                                n: int,
                                density: float,
+                               snr: float = None,
+                               noise_std: float = 0.0,
                                seed: int = None):
     """
     Generate a noisy rank‑1 matrix‑completion problem.
@@ -15,6 +17,8 @@ def generate_synthetic_problem(m: int,
     :param n: number of columns
     :param density: fraction of entries observed (0 < density <= 1)
     :param seed: optional random seed for reproducibility
+    :param snr: signal-to-noise ratio for the noise added to the observed entries
+    :param noise_std: standard deviation of the noise added to the observed entries
     :return:
         X_true:   full rank‑1 matrix (m x n)
         X_obs:    masked observations (zeros where unobserved)
@@ -35,6 +39,18 @@ def generate_synthetic_problem(m: int,
 
     # Apply the observation mask to the true matrix
     X_obs = X_true * mask
+
+    # Add noise to the observed entries
+    if snr is not None:
+        signal_var = np.var(X_true[mask])
+        noise_std = np.sqrt(signal_var) / snr
+    elif noise_std is None:
+        noise_std = 0.0
+
+    if noise_std > 0:
+        # Ensure noise is added only to observed entries
+        noise = np.random.randn(m, n) * noise_std
+        X_obs += noise * mask
 
     return X_true, X_obs, mask, u_true, v_true
 
