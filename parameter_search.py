@@ -66,7 +66,7 @@ def testGD(init=['gaussian', 'svd', 'svd+noise', 'mean']):
     if 'mean' in init:
         # Mean initialization
         lambda_values = np.logspace(-1.5, -0.25, 20)
-        lr_values = np.logspace(-5., -2.4, 20)
+        lr_values = np.logspace(-5., -3, 20)
 
         aggregated_results, results_per_lamda = gradient_grid_sweep(
             num_seeds,

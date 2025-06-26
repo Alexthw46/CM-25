@@ -282,7 +282,7 @@ def alternating_optimization(X: np.ndarray, X_mask: np.ndarray, u: np.ndarray, v
 
 def gradient_descent_rank1(X, X_mask, u_init=None, v_init=None,
                            max_it=1000, lr=1e-2, lambda_reg=0.0,
-                           tol=1e-6, verbose=False, track_residuals=False):
+                           tol=1e-6, patience=3, verbose=False, track_residuals=False, gradient_clip = None):
     """
     Gradient descent for rank-1 matrix completion using observed entries mask.
 
@@ -294,13 +294,14 @@ def gradient_descent_rank1(X, X_mask, u_init=None, v_init=None,
     :param lr: Learning rate
     :param lambda_reg: Regularization strength (lambda)
     :param tol: Stop if improvement < tol
+    :param patience: Number of allowed non-improving steps before stopping
     :param verbose: Print progress every 10 iterations
     :param track_residuals: Return residual history
     :return: u, v, iters, final_residual, (history if tracked)
     """
     m, n = X.shape
-    u = u_init if u_init is not None else np.random.randn(m)
-    v = v_init if v_init is not None else np.random.randn(n)
+    u = u_init if u_init is not None else np.random.randn(m) * 0.1
+    v = v_init if v_init is not None else np.random.randn(n) * 0.1
 
     u = u.astype(np.float64)
     v = v.astype(np.float64)
@@ -314,6 +315,10 @@ def gradient_descent_rank1(X, X_mask, u_init=None, v_init=None,
     obs_i, obs_j = np.where(X_mask)
 
     it = 0
+    stale_it = 0
+
+    grad_u = np.zeros(m, dtype=np.float64)  # Gradient for u
+    grad_v = np.zeros(n, dtype=np.float64)  # Gradient for v
 
     # Gradient descent loop
     for it in range(1, max_it + 1):
@@ -323,21 +328,26 @@ def gradient_descent_rank1(X, X_mask, u_init=None, v_init=None,
 
         # Gradients:
         # For u_i: sum over j with (i,j) in Omega of 2 * resid * v_j + 2 * lambda * u_i
-        grad_u = np.zeros(m, dtype=np.float64)
+        grad_u.fill(0)
         np.add.at(grad_u, obs_i, 2 * resid_obs * v[obs_j])
         grad_u += 2 * lambda_reg * u
 
         # For v_j: sum over i with (i,j) in Omega of 2 * resid * u_i + 2 * lambda * v_j
-        grad_v = np.zeros(n, dtype=np.float64)
+        grad_v.fill(0)
         np.add.at(grad_v, obs_j, 2 * resid_obs * u[obs_i])
         grad_v += 2 * lambda_reg * v
+
+        # Clip gradients element-wise, otherwise they can explode at higher densities
+        if gradient_clip is not None:
+            np.clip(grad_u, -gradient_clip, gradient_clip, out=grad_u)
+            np.clip(grad_v, -gradient_clip, gradient_clip, out=grad_v)
 
         # Gradient descent update
         u -= lr * grad_u
         v -= lr * grad_v
 
         # Compute objective f_lambda (loss + reg)
-        loss = np.sum(resid_obs ** 2)
+        loss = np.sum(resid_obs ** 2) + 1e-12  # add a small constant for numeric stability
         reg = lambda_reg * (np.dot(u, u) + np.dot(v, v))
         obj = loss + reg
 
@@ -347,10 +357,105 @@ def gradient_descent_rank1(X, X_mask, u_init=None, v_init=None,
         if verbose and (it % 10 == 0 or it == 1):
             print(f"[GD] Iter {it}, Objective: {obj:.6f}")
 
-        # Stopping criterion: check improvement
+        # Stopping criterion: check improvement with patience
         if (prev_obj - obj) < tol:
-            break
+            stale_it += 1
+            if stale_it >= patience:
+                break
+        else:
+            stale_it = 0
         prev_obj = obj
+
+    if track_residuals:
+        return u, v, it, obj, history
+    else:
+        return u, v, it, obj, None
+
+
+def gradient_descent_rank1_momentum(X, X_mask, u_init=None, v_init=None,
+                                    max_it=1000, lr=1e-2, lambda_reg=0.0,
+                                    tol=1e-6, patience=3, verbose=False,
+                                    momentum=0.9, track_residuals=False):
+    """
+    Gradient descent for rank-1 matrix completion using momentum.
+
+    :param X: Incomplete matrix (m x n)
+    :param X_mask: Binary mask of observed entries (m x n) where True indicates observed
+    :param u_init: Optional initialization for u (m,)
+    :param v_init: Optional initialization for v (n,)
+    :param max_it: Maximum number of iterations
+    :param lr: Learning rate
+    :param lambda_reg: L2 regularization strength
+    :param tol: Tolerance for convergence (relative improvement)
+    :param patience: Early stopping patience
+    :param verbose: Print progress
+    :param momentum: Momentum factor (0 = vanilla GD, typical 0.9)
+    :param track_residuals: Whether to store objective values for plotting
+    :return: u, v, iters, final_objective, (history if tracked)
+    """
+    m, n = X.shape
+    u = u_init if u_init is not None else np.random.randn(m)
+    v = v_init if v_init is not None else np.random.randn(n)
+
+    u = u.astype(np.float64)
+    v = v.astype(np.float64)
+    X = X.astype(np.float64)
+    X_mask = X_mask.astype(bool)
+
+    # Initialize velocities
+    u_vel = np.zeros_like(u)
+    v_vel = np.zeros_like(v)
+
+    history = []
+    prev_obj = obj = np.inf
+
+    obs_i, obs_j = np.where(X_mask)
+    grad_u = np.zeros(m, dtype=np.float64)
+    grad_v = np.zeros(n, dtype=np.float64)
+
+    stale_it = 0
+
+    for it in range(1, max_it + 1):
+        # Predictions and residuals on observed entries
+        pred_obs = u[obs_i] * v[obs_j]
+        resid_obs = pred_obs - X[obs_i, obs_j]
+
+        # Gradients:
+        # For u_i: sum over j with (i,j) in Omega of 2 * resid * v_j + 2 * lambda * u_i
+        grad_u.fill(0)
+        np.add.at(grad_u, obs_i, 2 * resid_obs * v[obs_j])
+        grad_u += 2 * lambda_reg * u
+
+        # For v_j: sum over i with (i,j) in Omega of 2 * resid * u_i + 2 * lambda * v_j
+        grad_v.fill(0)
+        np.add.at(grad_v, obs_j, 2 * resid_obs * u[obs_i])
+        grad_v += 2 * lambda_reg * v
+
+        # Momentum updates
+        u_vel = momentum * u_vel - lr * grad_u
+        v_vel = momentum * v_vel - lr * grad_v
+        u += u_vel
+        v += v_vel
+
+        # Objective (loss + regularization)
+        loss = np.sum(resid_obs ** 2) + 1e-12  # add a small constant for numeric stability
+        reg = lambda_reg * (np.dot(u, u) + np.dot(v, v))
+        obj = loss + reg
+
+        if track_residuals:
+            history.append(obj)
+
+        # Early stopping logic
+        if (prev_obj - obj) < tol:
+            stale_it += 1
+            if stale_it >= patience:
+                break
+        else:
+            stale_it = 0
+        prev_obj = obj
+
+        if verbose and (it % 10 == 0 or it == 1):
+            print(f"[GD+Momentum] Iter {it}, Objective: {obj:.6f}")
 
     if track_residuals:
         return u, v, it, obj, history
