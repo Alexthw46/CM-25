@@ -157,7 +157,7 @@ def baseline_svd_numpy(X_true, X_obs, mask):
 
 
 # SKLearn SVD baseline, faster but doesn't return the true uv
-def baseline_svd(X_true, X_obs, mask):
+def baseline_svd(X_true, X_obs, mask, relative_error=False):
     X_filled = X_obs.copy()
     X_filled[~mask] = X_obs[mask].mean()  # mean imputation
     start = time.time()
@@ -166,8 +166,12 @@ def baseline_svd(X_true, X_obs, mask):
     V = svd.components_
     svd_sol = U @ V
     end = time.time()
-    observed_error_svd = np.linalg.norm((svd_sol - X_true) * mask, 'fro')
-    full_error_svd = np.linalg.norm(svd_sol - X_true, 'fro')
+    if relative_error:
+        observed_error_svd = np.linalg.norm((svd_sol - X_true) * mask, 'fro') / np.linalg.norm(X_true * mask, 'fro')
+        full_error_svd = np.linalg.norm(svd_sol - X_true, 'fro') / np.linalg.norm(X_true, 'fro')
+    else:
+        observed_error_svd = np.linalg.norm((svd_sol - X_true) * mask, 'fro')
+        full_error_svd = np.linalg.norm(svd_sol - X_true, 'fro')
     return observed_error_svd, full_error_svd, end - start
 
 

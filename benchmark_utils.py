@@ -5,8 +5,9 @@ from solvers import *
 import numpy as np
 import time
 
+
 def compare_solvers(X_obs, X_true, u0, v0, mask, lambda_als=None, gd_params=None, plot=False, verbose=True, patience=10,
-                    max_it=5000):
+                    max_it=5000, noised_data=False):
     """
     Compare the performance of Alternating Optimization (ALS), ALS with normalization and Gradient Descent.
 
@@ -19,6 +20,7 @@ def compare_solvers(X_obs, X_true, u0, v0, mask, lambda_als=None, gd_params=None
     :param lambda_als: Regularization strength for ALS and NormALS as a list
     :param gd_params: Gradient descent parameters as a list [lr, lambda_reg]
     :param plot: If True, plot residual curves
+    :param noised_data: If True, the data has noise added to it and the errors must be relative
     """
 
     if lambda_als is None:
@@ -35,8 +37,12 @@ def compare_solvers(X_obs, X_true, u0, v0, mask, lambda_als=None, gd_params=None
     end = time.time()
     time_als = end - start
     ALS_sol = np.outer(u, v)
-    observed_error_ALS = np.linalg.norm((ALS_sol - X_true) * mask, 'fro')
-    full_error_ALS = np.linalg.norm(ALS_sol - X_true, 'fro')
+    if noised_data:
+        observed_error_ALS = np.linalg.norm((ALS_sol - X_true) * mask, 'fro') / np.linalg.norm(X_true * mask, 'fro')
+        full_error_ALS = np.linalg.norm(ALS_sol - X_true, 'fro') / np.linalg.norm(X_true, 'fro')
+    else:
+        observed_error_ALS = np.linalg.norm((ALS_sol - X_true) * mask, 'fro')
+        full_error_ALS = np.linalg.norm(ALS_sol - X_true, 'fro')
     if verbose:
         print(
             f"ALS: Residual={res:.6f}, Observed Error={observed_error_ALS:.8f}, Full Error={full_error_ALS:.8f}, Iter={it_als}, Time={end - start:.4f}s")
@@ -53,8 +59,13 @@ def compare_solvers(X_obs, X_true, u0, v0, mask, lambda_als=None, gd_params=None
     end = time.time()
     time_NormALS = end - start
     NormALS_sol = np.outer(u, v)
-    observed_error_NormALS = np.linalg.norm((NormALS_sol - X_true) * mask, 'fro')
-    full_error_NormALS = np.linalg.norm(NormALS_sol - X_true, 'fro')
+    if noised_data:
+        observed_error_NormALS = np.linalg.norm((NormALS_sol - X_true) * mask, 'fro') / np.linalg.norm(X_true * mask,
+                                                                                                       'fro')
+        full_error_NormALS = np.linalg.norm(NormALS_sol - X_true, 'fro') / np.linalg.norm(X_true, 'fro')
+    else:
+        observed_error_NormALS = np.linalg.norm((NormALS_sol - X_true) * mask, 'fro')
+        full_error_NormALS = np.linalg.norm(NormALS_sol - X_true, 'fro')
     if verbose:
         print(
             f"NormALS: Residual={res:.6f}, Observed Error={observed_error_NormALS:.8f}, Full Error={full_error_NormALS:.8f}, Iter={it_NormAls}, Time={end - start:.4f}s")
@@ -75,8 +86,13 @@ def compare_solvers(X_obs, X_true, u0, v0, mask, lambda_als=None, gd_params=None
     end = time.time()
     time_gd = end - start
     gd_sol = np.outer(u, v)
-    observed_error_gd = np.linalg.norm((gd_sol - X_true) * mask, 'fro')
-    full_error_gd = np.linalg.norm(gd_sol - X_true, 'fro')
+    if noised_data:
+        observed_error_gd = np.linalg.norm((gd_sol - X_true) * mask, 'fro') / np.linalg.norm(X_true * mask, 'fro')
+        full_error_gd = np.linalg.norm(gd_sol - X_true, 'fro') / np.linalg.norm(X_true, 'fro')
+    else:
+        observed_error_gd = np.linalg.norm((gd_sol - X_true) * mask, 'fro')
+        full_error_gd = np.linalg.norm(gd_sol - X_true, 'fro')
+
     if verbose:
         print(
             f"GD: Residual={res:.6f}, Observed Error={observed_error_gd:.8f}, Full Error={full_error_gd:.8f}, Iter={it_gd}, Time={end - start:.4f}s")
@@ -151,10 +167,11 @@ def run_benchmark_for_seed(seed, init_settings, density=0.1, m=100, n=100, noise
     :return: Dictionary containing the results for each method
     """
 
-    X_true, X_obs, mask, u_true, v_true = generate_synthetic_problem(m, n, density, seed=seed - 1, noise_std=noise, snr=snr)
+    X_true, X_obs, mask, u_true, v_true = generate_synthetic_problem(m, n, density, seed=seed - 1, noise_std=noise,
+                                                                     snr=snr)
     results = {}
 
-    svd_results = baseline_svd(X_true, X_obs, mask)
+    svd_results = baseline_svd(X_true, X_obs, mask, relative_error= snr is not None or noise > 0)
     results['Baseline SVD'] = {
         'Baseline SVD': {
             'observed_error': svd_results[0],
@@ -179,7 +196,8 @@ def run_benchmark_for_seed(seed, init_settings, density=0.1, m=100, n=100, noise
         gd_params = params['gd_params']
 
         results[pretty_name] = compare_solvers(X_obs, X_true, u0.copy(), v0.copy(), mask, lambda_als=lambda_als,
-                                               gd_params=gd_params, plot=False, verbose=False, patience=3, max_it=5000)
+                                               gd_params=gd_params, plot=False, verbose=False, patience=3, max_it=5000,
+                                               noised_data=snr is not None or noise > 0)
         # Add the time needed for initialization
         for solver in results[pretty_name]:
             results[pretty_name][solver]['time'] += init_time
