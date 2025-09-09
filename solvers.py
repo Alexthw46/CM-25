@@ -41,7 +41,7 @@ def generate_synthetic_problem(m: int,
     X_obs = X_true * mask
 
     # Add noise to the observed entries
-    if snr is not None:
+    if snr is not None and snr > 0:
         signal_var = np.var(X_true[mask])
         noise_std = np.sqrt(signal_var) / snr
     elif noise_std is None:
@@ -395,7 +395,7 @@ def gradient_descent_rank1(X, X_mask, u_init=None, v_init=None,
 def gradient_descent_rank1_momentum(X, X_mask, u_init=None, v_init=None,
                                     max_it=1000, lr=1e-2, lambda_reg=0.0,
                                     tol=1e-6, patience=3, verbose=False,
-                                    momentum=0.9, track_residuals=False):
+                                    momentum=0.9, track_residuals=False, gradient_clip = None):
     """
     Gradient descent for rank-1 matrix completion using momentum.
 
@@ -450,6 +450,11 @@ def gradient_descent_rank1_momentum(X, X_mask, u_init=None, v_init=None,
         grad_v.fill(0)
         np.add.at(grad_v, obs_j, 2 * resid_obs * u[obs_i])
         grad_v += 2 * lambda_reg * v
+
+        # Clip gradients element-wise, otherwise they can explode at higher densities
+        if gradient_clip is not None:
+            np.clip(grad_u, -gradient_clip, gradient_clip, out=grad_u)
+            np.clip(grad_v, -gradient_clip, gradient_clip, out=grad_v)
 
         # Momentum updates
         u_vel = momentum * u_vel - lr * grad_u

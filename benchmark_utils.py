@@ -76,12 +76,16 @@ def compare_solvers(X_obs, X_true, u0, v0, mask, lambda_als=None, gd_params=None
         gd_params = [9.41e-04, 6.95e-05]
     lr = gd_params[0]
     lambda_gd = gd_params[1]
+    if gd_params is not None and len(gd_params) > 2:
+        momentum = gd_params[2]
+    else:
+        momentum = 0
     start = time.time()
-    u, v, it_gd, res, hist3 = gradient_descent_rank1(
+    u, v, it_gd, res, hist3 = gradient_descent_rank1_momentum(
         X_obs, mask, u_init=u0.copy(), v_init=v0.copy(),
         max_it=max_it, lr=lr, lambda_reg=lambda_gd,
         tol=1e-8, verbose=False, track_residuals=plot, patience=patience,
-        gradient_clip=10.0
+        gradient_clip=10.0, momentum=momentum
     )
     end = time.time()
     time_gd = end - start
@@ -196,7 +200,7 @@ def run_benchmark_for_seed(seed, init_settings, density=0.1, m=100, n=100, noise
         gd_params = params['gd_params']
 
         results[pretty_name] = compare_solvers(X_obs, X_true, u0.copy(), v0.copy(), mask, lambda_als=lambda_als,
-                                               gd_params=gd_params, plot=False, verbose=False, patience=3, max_it=5000,
+                                               gd_params=gd_params, plot=False, verbose=False, patience=3, max_it=300 * 1000,
                                                noised_data=snr is not None or noise > 0)
         # Add the time needed for initialization
         for solver in results[pretty_name]:

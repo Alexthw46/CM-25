@@ -1,6 +1,7 @@
 import numpy as np
 
-from solvers import alternating_optimization, gradient_descent_rank1, generate_synthetic_problem, initialize_uv
+from solvers import alternating_optimization, gradient_descent_rank1, generate_synthetic_problem, initialize_uv, \
+    gradient_descent_rank1_momentum
 from plot_utils import plot_3d_surface, top_k_results, plot_lambda_results, plot_unaggregated_per_seed
 
 
@@ -16,7 +17,7 @@ def testGD(init=['gaussian', 'svd', 'svd+noise', 'mean']):
         aggregated_results, results_per_lamda = gradient_grid_sweep(
             num_seeds,
             lambda_values, lr_values,
-            grad_solver=gradient_descent_rank1,
+            grad_solver=gradient_descent_rank1_momentum,
             max_it=1000, eps=1e-6
         )
         plot_3d_surface(aggregated_results)
@@ -36,8 +37,8 @@ def testGD(init=['gaussian', 'svd', 'svd+noise', 'mean']):
         aggregated_results, results_per_lamda = gradient_grid_sweep(
             num_seeds,
             lambda_values, lr_values,
-            grad_solver=gradient_descent_rank1,
-            max_it=1000, eps=1e-6,
+            grad_solver=gradient_descent_rank1_momentum,
+            max_it=10000, eps=1e-6,
             init='svd'
         )
         plot_3d_surface(aggregated_results)
@@ -52,8 +53,8 @@ def testGD(init=['gaussian', 'svd', 'svd+noise', 'mean']):
             aggregated_results, results_per_lamda = gradient_grid_sweep(
                 num_seeds,
                 lambda_values, lr_values,
-                grad_solver=gradient_descent_rank1,
-                max_it=1000, eps=1e-6,
+                grad_solver=gradient_descent_rank1_momentum,
+                max_it=10000, eps=1e-6,
                 init='svd', noise=0.1
             )
             plot_3d_surface(aggregated_results)
@@ -65,19 +66,19 @@ def testGD(init=['gaussian', 'svd', 'svd+noise', 'mean']):
 
     if 'mean' in init:
         # Mean initialization
-        lambda_values = np.logspace(-1.5, -0.25, 20)
-        lr_values = np.logspace(-5., -3, 20)
+        lambda_values = np.logspace(-1.5, -0.25, 10)
+        lr_values = np.logspace(-5., -3, 10)
 
         aggregated_results, results_per_lamda = gradient_grid_sweep(
             num_seeds,
             lambda_values, lr_values,
-            grad_solver=gradient_descent_rank1,
-            max_it=1000, eps=1e-6,
+            grad_solver=gradient_descent_rank1_momentum,
+            max_it=300*100, eps=1e-4,
             init='mean'
         )
         plot_3d_surface(aggregated_results)
-        best_results = top_k_results(aggregated_results, k=5, sort_by='full_mean')
-        print("\n=== Top 5 results Mean ===")
+        best_results = top_k_results(aggregated_results, k=10, sort_by='full_mean')
+        print("\n=== Top 10 results Mean ===")
         for i, res in enumerate(best_results, 1):
             print(
                 f"#{i}: lambda={res['lambda']:.2e}, lr={res['lr']:.2e}, full_err={res['full_mean']:.4f}, obs_err={res['obs_mean']:.4f}, iters={res['iters_mean']:.1f}")
@@ -129,7 +130,8 @@ def gradient_grid_sweep(
                     lr=lr,
                     lambda_reg=lam,
                     max_it=max_it,
-                    tol=eps
+                    tol=eps,
+                    momentum=0.75,
                 )
 
                 A_hat = np.outer(u, v)
@@ -284,8 +286,8 @@ if __name__ == "__main__":
     density = 10 / n
 
     # Perform lambda search for alternating optimization
-    switch = True  # True for ALS, False for GD
+    switch = False  # True for ALS, False for GD
     if switch:
         test_ALS(['gaussian'])
     else:
-        testGD()
+        testGD(['gaussian', 'svd'])
