@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import pandas as pd
-from tabulate import tabulate
 from solvers import *
 import numpy as np
 import time
@@ -99,20 +98,20 @@ def compare_solvers(X_obs, X_true, u0, v0, mask, lambda_als=None, gd_params=None
 
     if verbose:
         print(
-            f"GD: Residual={res:.6f}, Observed Error={observed_error_gd:.8f}, Full Error={full_error_gd:.8f}, Iter={it_gd}, Time={end - start:.4f}s")
+            f"GD: Objective={res:.6f}, Observed Error={observed_error_gd:.8f}, Full Error={full_error_gd:.8f}, Iter={it_gd}, Time={end - start:.4f}s")
 
     # Plot residuals if available
     if plot:
         plt.figure(figsize=(10, 6))
         if hist and hist['objective']:
-            plt.plot(hist['objective'], label='ALS Observed Error')
+            plt.plot(hist['objective'], label='ALS')
         if hist2 and hist2['objective']:
-            plt.plot(hist2['objective'], label='NormALS Observed Error')
+            plt.plot(hist2['objective'], label='Normalized ALS')
         if hist3:
-            plt.plot(hist3, label='GD Observed Error')
+            plt.plot(hist3, label='Gradient Descent')
         plt.yscale('log')
         plt.xlabel('Iteration')
-        plt.ylabel('Frobenius Error on Observed Entries')
+        plt.ylabel('Objective Function')
         plt.title('Convergence Comparison')
         plt.legend()
         plt.grid(True)
@@ -128,7 +127,7 @@ def compare_solvers(X_obs, X_true, u0, v0, mask, lambda_als=None, gd_params=None
         plt.yscale('log')
         plt.xlabel('Iteration')
         plt.ylabel('Residual')
-        plt.title('Residuals Comparison')
+        plt.title('Residual Error Comparison')
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
@@ -200,7 +199,7 @@ def run_benchmark_for_seed(seed, init_settings, density=0.1, m=100, n=100, noise
         gd_params = params['gd_params']
 
         results[pretty_name] = compare_solvers(X_obs, X_true, u0.copy(), v0.copy(), mask, lambda_als=lambda_als,
-                                               gd_params=gd_params, plot=False, verbose=False, patience=3, max_it=300 * 1000,
+                                               gd_params=gd_params, plot=False, verbose=False, patience=3, max_it=100000,
                                                noised_data=snr is not None or noise > 0)
         # Add the time needed for initialization
         for solver in results[pretty_name]:
@@ -215,9 +214,13 @@ def summarize_solver_results(solver, accum_results):
         obs = np.mean(accum_results[solver][f'{solver}_obs'])
         full = np.mean(accum_results[solver][f'{solver}_full'])
         time = np.mean(accum_results[solver][f'{solver}_time'])
+        obs_err_std = np.std(accum_results[solver][f'{solver}_obs'])
+        full_err_std = np.std(accum_results[solver][f'{solver}_full'])
         rows.append({
             'Observed Error': obs,
+            'Observed Error Std': obs_err_std,
             'Full Error': full,
+            'Full Error Std': full_err_std,
             'Time': time
         })
         return pd.DataFrame(rows)

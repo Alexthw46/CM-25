@@ -276,7 +276,7 @@ def alternating_optimization(X: np.ndarray, X_mask: np.ndarray, u: np.ndarray, v
         rec_error = rec_error.astype(np.float64)
         obj_val = rec_error ** 2 + lambda_reg * (np.linalg.norm(u) ** 2 + np.linalg.norm(v) ** 2)
 
-        improvement = prev_res - rec_error
+        improvement = prev_res - obj_val
         if improvement <= eps:
             if stale_it <= patience:
                 stale_it += 1
@@ -295,7 +295,7 @@ def alternating_optimization(X: np.ndarray, X_mask: np.ndarray, u: np.ndarray, v
             msg += f", Improvement={improvement:.2e}"
             print(msg)
 
-        prev_res = rec_error
+        prev_res = obj_val
 
     return u, v, it, rec_error, histories
 
